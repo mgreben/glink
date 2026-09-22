@@ -11,9 +11,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Docker Compose starts PostgreSQL and Redis, applies migrations, and runs the application at `http://localhost:8080`.
+Docker Compose starts PostgreSQL, Redis, Kafka, and ClickHouse, applies migrations, and runs the application at `http://localhost:8080`.
 
 Redis caches resolved short links. Configure it with `REDIS_ADDR`, optional `REDIS_PASSWORD`, and `LINK_CACHE_TTL` (defaults to `1h`); see `.env.example`.
+
+Successful redirects publish an asynchronous `link.clicked` event to Kafka. A consumer inserts events in ClickHouse batches; the redirect never waits for Kafka. Configure Kafka with `KAFKA_BROKERS`, `KAFKA_CLICK_TOPIC`, `KAFKA_CLICK_CONSUMER_GROUP`, and `KAFKA_MAX_BUFFERED_RECORDS`, and ClickHouse with `CLICKHOUSE_ADDR`.
 
 ## API
 
@@ -55,4 +57,4 @@ go test ./...
 go run ./cmd/app
 ```
 
-Running without Docker requires available PostgreSQL and Redis instances. Set `POSTGRES_DSN` and `REDIS_ADDR`; `HTTP_ADDR` defaults to `:8080`.
+Running without Docker requires available PostgreSQL, Redis, and Kafka instances. Set `POSTGRES_DSN`, `REDIS_ADDR`, and `KAFKA_BROKERS`; `HTTP_ADDR` defaults to `:8080`.

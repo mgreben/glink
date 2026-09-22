@@ -21,6 +21,20 @@ type linkCacheStub struct {
 	setErr error
 }
 
+type clickPublisherStub struct {
+	events []ClickEvent
+}
+
+type statsReaderStub struct{ err error }
+
+func (s statsReaderStub) CountClicks(context.Context, int64, StatsPeriod) (int64, error) {
+	return 0, s.err
+}
+
+func (p *clickPublisherStub) Publish(_ context.Context, event ClickEvent) {
+	p.events = append(p.events, event)
+}
+
 func (c *linkCacheStub) Get(context.Context, string) (*Link, error) {
 	return c.link, c.getErr
 }
@@ -65,7 +79,7 @@ func TestLinkService_GetByCode(t *testing.T) {
 		repo := new(linkRepoMock)
 		repo.On("GetByCode", ctx, "abc123").Return(expected, nil).Once()
 
-		link, err := NewLinkService(repo, &linkCacheStub{}).GetByCode(ctx, "abc123")
+		link, err := NewLinkService(repo, &linkCacheStub{}, &clickPublisherStub{}).GetByCode(ctx, "abc123")
 
 		require.NoError(t, err)
 		assert.Same(t, expected, link)
@@ -78,7 +92,7 @@ func TestLinkService_GetByCode(t *testing.T) {
 		repo := new(linkRepoMock)
 		repo.On("GetByCode", ctx, "missing").Return(nil, ErrNotFound).Once()
 
-		link, err := NewLinkService(repo, &linkCacheStub{}).GetByCode(ctx, "missing")
+		link, err := NewLinkService(repo, &linkCacheStub{}, &clickPublisherStub{}).GetByCode(ctx, "missing")
 
 		assert.Nil(t, link)
 		assert.ErrorIs(t, err, ErrNotFound)
@@ -97,7 +111,7 @@ func TestLinkService_Create(t *testing.T) {
 			return link.OriginalURL == "https://example.com" && len(link.Code) == 6 && !link.CreatedAt.IsZero()
 		})).Return(nil).Once()
 
-		link, err := NewLinkService(repo, &linkCacheStub{}).Create(ctx, "https://example.com")
+		link, err := NewLinkService(repo, &linkCacheStub{}, &clickPublisherStub{}).Create(ctx, "https://example.com")
 
 		require.NoError(t, err)
 		assert.Equal(t, "https://example.com", link.OriginalURL)
@@ -113,7 +127,7 @@ func TestLinkService_Create(t *testing.T) {
 		repo.On("Create", ctx, mock.Anything).Return(ErrUniqueCode).Once()
 		repo.On("Create", ctx, mock.Anything).Return(nil).Once()
 
-		link, err := NewLinkService(repo, &linkCacheStub{}).Create(ctx, "https://example.com")
+		link, err := NewLinkService(repo, &linkCacheStub{}, &clickPublisherStub{}).Create(ctx, "https://example.com")
 
 		require.NoError(t, err)
 		assert.NotNil(t, link)
@@ -126,7 +140,7 @@ func TestLinkService_Create(t *testing.T) {
 		repo := new(linkRepoMock)
 		repo.On("Create", ctx, mock.Anything).Return(ErrUniqueCode).Times(5)
 
-		link, err := NewLinkService(repo, &linkCacheStub{}).Create(ctx, "https://example.com")
+		link, err := NewLinkService(repo, &linkCacheStub{}, &clickPublisherStub{}).Create(ctx, "https://example.com")
 
 		assert.Nil(t, link)
 		assert.ErrorIs(t, err, ErrCodeGenerationExhausted)
@@ -140,7 +154,7 @@ func TestLinkService_Create(t *testing.T) {
 		repo := new(linkRepoMock)
 		repo.On("Create", ctx, mock.Anything).Return(repoErr).Once()
 
-		link, err := NewLinkService(repo, &linkCacheStub{}).Create(ctx, "https://example.com")
+		link, err := NewLinkService(repo, &linkCacheStub{}, &clickPublisherStub{}).Create(ctx, "https://example.com")
 
 		assert.Nil(t, link)
 		assert.ErrorIs(t, err, repoErr)
@@ -152,7 +166,7 @@ func TestLinkService_GetByCodeReturnsCachedLink(t *testing.T) {
 	t.Parallel()
 	expected := &Link{ID: 1, Code: "abc123", OriginalURL: "https://example.com"}
 
-	link, err := NewLinkService(new(linkRepoMock), &linkCacheStub{link: expected}).GetByCode(context.Background(), "abc123")
+	link, err := NewLinkService(new(linkRepoMock), &linkCacheStub{link: expected}, &clickPublisherStub{}).GetByCode(context.Background(), "abc123")
 
 	require.NoError(t, err)
 	assert.Same(t, expected, link)
@@ -165,7 +179,7 @@ func TestLinkService_GetByCodeFallsBackWhenCacheFails(t *testing.T) {
 	repo := new(linkRepoMock)
 	repo.On("GetByCode", ctx, "abc123").Return(expected, nil).Once()
 
-	link, err := NewLinkService(repo, &linkCacheStub{getErr: errors.New("redis unavailable")}).GetByCode(ctx, "abc123")
+	link, err := NewLinkService(repo, &linkCacheStub{getErr: errors.New("redis unavailable")}, &clickPublisherStub{}).GetByCode(ctx, "abc123")
 
 	require.NoError(t, err)
 	assert.Same(t, expected, link)
@@ -176,12 +190,13 @@ func TestLinkService_RecordClick(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := new(linkRepoMock)
-	repo.On("RecordClick", ctx, int64(1), mock.Anything).Return(nil).Once()
+	publisher := &clickPublisherStub{}
 
-	err := NewLinkService(repo, &linkCacheStub{}).RecordClick(ctx, 1)
+	err := NewLinkService(repo, &linkCacheStub{}, publisher).RecordClick(ctx, 1)
 
 	require.NoError(t, err)
-	repo.AssertExpectations(t)
+	require.Len(t, publisher.events, 1)
+	assert.Equal(t, int64(1), publisher.events[0].LinkID)
 }
 
 func TestLinkService_GetStatsPreservesNotFound(t *testing.T) {
@@ -189,9 +204,9 @@ func TestLinkService_GetStatsPreservesNotFound(t *testing.T) {
 	ctx := context.Background()
 	period := StatsPeriod{}
 	repo := new(linkRepoMock)
-	repo.On("GetStats", ctx, "missing", period).Return(nil, ErrNotFound).Once()
+	repo.On("GetByCode", ctx, "missing").Return(nil, ErrNotFound).Once()
 
-	stats, err := NewLinkService(repo, &linkCacheStub{}).GetStats(ctx, "missing", period)
+	stats, err := NewLinkServiceWithStats(repo, &linkCacheStub{}, &clickPublisherStub{}, statsReaderStub{}).GetStats(ctx, "missing", period)
 
 	assert.Nil(t, stats)
 	assert.ErrorIs(t, err, ErrNotFound)

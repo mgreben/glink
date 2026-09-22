@@ -12,23 +12,31 @@ import (
 type linkRepo interface {
 	GetByCode(context.Context, string) (*Link, error)
 	Create(context.Context, *Link) error
-	RecordClick(context.Context, int64, time.Time) error
-	GetStats(context.Context, string, StatsPeriod) (*LinkStats, error)
+}
+
+type statsReader interface {
+	CountClicks(context.Context, int64, StatsPeriod) (int64, error)
+}
+
+type clickPublisher interface {
+	Publish(context.Context, ClickEvent)
 }
 
 func (s *LinkService) RecordClick(ctx context.Context, linkID int64) error {
-	if err := s.repo.RecordClick(ctx, linkID, time.Now().UTC()); err != nil {
-		return fmt.Errorf("record link click: %w", err)
-	}
+	s.publisher.Publish(ctx, ClickEvent{LinkID: linkID, ClickedAt: time.Now().UTC()})
 	return nil
 }
 
 func (s *LinkService) GetStats(ctx context.Context, code string, period StatsPeriod) (*LinkStats, error) {
-	stats, err := s.repo.GetStats(ctx, code, period)
+	link, err := s.repo.GetByCode(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("get link stats: %w", err)
 	}
-	return stats, nil
+	clicks, err := s.stats.CountClicks(ctx, link.ID, period)
+	if err != nil {
+		return nil, fmt.Errorf("get link stats: %w", err)
+	}
+	return &LinkStats{Code: link.Code, Clicks: clicks}, nil
 }
 
 type linkCache interface {
@@ -37,15 +45,24 @@ type linkCache interface {
 }
 
 type LinkService struct {
-	repo  linkRepo
-	cache linkCache
+	repo      linkRepo
+	cache     linkCache
+	publisher clickPublisher
+	stats     statsReader
 }
 
-func NewLinkService(repo linkRepo, cache linkCache) *LinkService {
+func NewLinkService(repo linkRepo, cache linkCache, publisher clickPublisher) *LinkService {
 	return &LinkService{
-		repo:  repo,
-		cache: cache,
+		repo:      repo,
+		cache:     cache,
+		publisher: publisher,
 	}
+}
+
+func NewLinkServiceWithStats(repo linkRepo, cache linkCache, publisher clickPublisher, stats statsReader) *LinkService {
+	service := NewLinkService(repo, cache, publisher)
+	service.stats = stats
+	return service
 }
 
 func (s *LinkService) GetByCode(ctx context.Context, code string) (*Link, error) {

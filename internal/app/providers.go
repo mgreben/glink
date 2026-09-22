@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mgreben/glink/internal/config"
+	linksclickhouse "github.com/mgreben/glink/internal/modules/links/clickhouse"
+	linkskafka "github.com/mgreben/glink/internal/modules/links/kafka"
 	httpvalidator "github.com/mgreben/glink/pkg/http_validator"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/fx"
@@ -51,6 +54,29 @@ func newRedisClient(lc fx.Lifecycle, cfg *config.Config) *redis.Client {
 	})
 
 	return client
+}
+
+func newClickHouse(lc fx.Lifecycle, cfg *config.Config) (clickhouse.Conn, error) {
+	conn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{cfg.ClickHouse.Addr}})
+	if err != nil {
+		return nil, err
+	}
+	lc.Append(fx.Hook{OnStop: func(context.Context) error { return conn.Close() }})
+	return conn, nil
+}
+
+func runClickConsumer(lc fx.Lifecycle, consumer *linkskafka.ClickConsumer, store *linksclickhouse.ClickStore) {
+	ctx, cancel := context.WithCancel(context.Background())
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			go func() { _ = consumer.Run(ctx, store) }()
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			cancel()
+			return nil
+		},
+	})
 }
 
 func newValidator() *validator.Validate {
