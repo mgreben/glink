@@ -20,6 +20,13 @@ type linkResponse struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type linkStatsResponse struct {
+	Code   string     `json:"code"`
+	From   *time.Time `json:"from,omitempty"`
+	To     *time.Time `json:"to,omitempty"`
+	Clicks int64      `json:"clicks"`
+}
+
 type errorResponse struct {
 	Error string `json:"error"`
 }

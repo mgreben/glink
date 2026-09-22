@@ -12,6 +12,23 @@ import (
 type linkRepo interface {
 	GetByCode(context.Context, string) (*Link, error)
 	Create(context.Context, *Link) error
+	RecordClick(context.Context, int64, time.Time) error
+	GetStats(context.Context, string, StatsPeriod) (*LinkStats, error)
+}
+
+func (s *LinkService) RecordClick(ctx context.Context, linkID int64) error {
+	if err := s.repo.RecordClick(ctx, linkID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("record link click: %w", err)
+	}
+	return nil
+}
+
+func (s *LinkService) GetStats(ctx context.Context, code string, period StatsPeriod) (*LinkStats, error) {
+	stats, err := s.repo.GetStats(ctx, code, period)
+	if err != nil {
+		return nil, fmt.Errorf("get link stats: %w", err)
+	}
+	return stats, nil
 }
 
 type linkCache interface {

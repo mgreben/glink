@@ -42,6 +42,19 @@ func (l *linkRepoMock) Create(ctx context.Context, link *Link) error {
 	return args.Error(0)
 }
 
+func (l *linkRepoMock) RecordClick(ctx context.Context, linkID int64, clickedAt time.Time) error {
+	args := l.Called(ctx, linkID, clickedAt)
+	return args.Error(0)
+}
+
+func (l *linkRepoMock) GetStats(ctx context.Context, code string, period StatsPeriod) (*LinkStats, error) {
+	args := l.Called(ctx, code, period)
+	if stats, ok := args.Get(0).(*LinkStats); ok {
+		return stats, args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func TestLinkService_GetByCode(t *testing.T) {
 	t.Parallel()
 
@@ -156,5 +169,31 @@ func TestLinkService_GetByCodeFallsBackWhenCacheFails(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Same(t, expected, link)
+	repo.AssertExpectations(t)
+}
+
+func TestLinkService_RecordClick(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repo := new(linkRepoMock)
+	repo.On("RecordClick", ctx, int64(1), mock.Anything).Return(nil).Once()
+
+	err := NewLinkService(repo, &linkCacheStub{}).RecordClick(ctx, 1)
+
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestLinkService_GetStatsPreservesNotFound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	period := StatsPeriod{}
+	repo := new(linkRepoMock)
+	repo.On("GetStats", ctx, "missing", period).Return(nil, ErrNotFound).Once()
+
+	stats, err := NewLinkService(repo, &linkCacheStub{}).GetStats(ctx, "missing", period)
+
+	assert.Nil(t, stats)
+	assert.ErrorIs(t, err, ErrNotFound)
 	repo.AssertExpectations(t)
 }

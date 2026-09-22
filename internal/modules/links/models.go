@@ -8,3 +8,13 @@ type Link struct {
 	Code        string
 	CreatedAt   time.Time
 }
+
+type StatsPeriod struct {
+	From *time.Time
+	To   *time.Time
+}
+
+type LinkStats struct {
+	Code   string
+	Clicks int64
+}

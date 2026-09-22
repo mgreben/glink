@@ -42,6 +42,12 @@ Redirect a user:
 curl -i http://localhost:8080/r/a1B2c3
 ```
 
+Get the number of redirects for a link. `from` and `to` are optional RFC 3339 timestamps and both bounds are inclusive:
+
+```sh
+curl 'http://localhost:8080/links/a1B2c3/stats?from=2026-09-01T00:00:00Z&to=2026-09-30T23:59:59Z'
+```
+
 ## Development
 
 ```sh

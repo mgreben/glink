@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -61,4 +63,41 @@ func (r *LinkRepo) Create(ctx context.Context, link *links.Link) error {
 	}
 
 	return err
+}
+
+func (r *LinkRepo) RecordClick(ctx context.Context, linkID int64, clickedAt time.Time) error {
+	_, err := r.db.Exec(
+		ctx,
+		`INSERT INTO link_clicks (link_id, clicked_at) VALUES ($1, $2)`,
+		linkID,
+		clickedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert link click: %w", err)
+	}
+	return nil
+}
+
+func (r *LinkRepo) GetStats(ctx context.Context, code string, period links.StatsPeriod) (*links.LinkStats, error) {
+	stats := &links.LinkStats{}
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT l.code, COUNT(c.id)
+		 FROM links l
+		 LEFT JOIN link_clicks c ON c.link_id = l.id
+		   AND ($2::timestamptz IS NULL OR c.clicked_at >= $2)
+		   AND ($3::timestamptz IS NULL OR c.clicked_at <= $3)
+		 WHERE l.code = $1
+		 GROUP BY l.code`,
+		code,
+		period.From,
+		period.To,
+	).Scan(&stats.Code, &stats.Clicks)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, links.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query link stats: %w", err)
+	}
+	return stats, nil
 }
