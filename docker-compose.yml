@@ -10,6 +10,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   migrate:
     image: migrate/migrate:v4.18.3
@@ -41,6 +43,15 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-glink} -d ${POSTGRES_DB:-glink}"]
       interval: 5s
       timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 10
 
 volumes:

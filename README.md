@@ -11,7 +11,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Docker Compose starts PostgreSQL, applies migrations, and runs the application at `http://localhost:8080`.
+Docker Compose starts PostgreSQL and Redis, applies migrations, and runs the application at `http://localhost:8080`.
+
+Redis caches resolved short links. Configure it with `REDIS_ADDR`, optional `REDIS_PASSWORD`, and `LINK_CACHE_TTL` (defaults to `1h`); see `.env.example`.
 
 ## API
 
@@ -47,4 +49,4 @@ go test ./...
 go run ./cmd/app
 ```
 
-Running without Docker requires an available PostgreSQL instance and the `POSTGRES_DSN` environment variable. `HTTP_ADDR` defaults to `:8080`.
+Running without Docker requires available PostgreSQL and Redis instances. Set `POSTGRES_DSN` and `REDIS_ADDR`; `HTTP_ADDR` defaults to `:8080`.

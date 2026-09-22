@@ -14,21 +14,34 @@ type linkRepo interface {
 	Create(context.Context, *Link) error
 }
 
-type LinkService struct {
-	repo linkRepo
+type linkCache interface {
+	Get(context.Context, string) (*Link, error)
+	Set(context.Context, *Link) error
 }
 
-func NewLinkService(repo linkRepo) *LinkService {
+type LinkService struct {
+	repo  linkRepo
+	cache linkCache
+}
+
+func NewLinkService(repo linkRepo, cache linkCache) *LinkService {
 	return &LinkService{
-		repo: repo,
+		repo:  repo,
+		cache: cache,
 	}
 }
 
 func (s *LinkService) GetByCode(ctx context.Context, code string) (*Link, error) {
-	link, err := s.repo.GetByCode(ctx, code)
+	link, err := s.cache.Get(ctx, code)
+	if err == nil && link != nil {
+		return link, nil
+	}
+
+	link, err = s.repo.GetByCode(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get link by code: %w", err)
 	}
+	_ = s.cache.Set(ctx, link)
 	return link, nil
 }
 
@@ -48,6 +61,7 @@ func (s *LinkService) Create(ctx context.Context, originalURL string) (*Link, er
 
 		err = s.repo.Create(ctx, link)
 		if err == nil {
+			_ = s.cache.Set(ctx, link)
 			return link, nil
 		}
 

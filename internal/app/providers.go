@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mgreben/glink/internal/config"
 	httpvalidator "github.com/mgreben/glink/pkg/http_validator"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/fx"
 )
 
@@ -35,6 +36,21 @@ func newDB(lc fx.Lifecycle, cfg *config.Config) (*pgxpool.Pool, error) {
 	})
 
 	return pool, nil
+}
+
+func newRedisClient(lc fx.Lifecycle, cfg *config.Config) *redis.Client {
+	client := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+	})
+
+	lc.Append(fx.Hook{
+		OnStop: func(context.Context) error {
+			return client.Close()
+		},
+	})
+
+	return client
 }
 
 func newValidator() *validator.Validate {
